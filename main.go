@@ -23,6 +23,16 @@ var funcs = template.FuncMap{
 
 func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Get the categories from the query parameter "categories"
+		categoriesParam := r.URL.Query().Get("categories")
+		if categoriesParam == "" {
+			http.Error(w, "Categories parameter is missing", http.StatusBadRequest)
+			return
+		}
+
+		// Split the categories by comma to create a slice
+		targetCategories := strings.Split(categoriesParam, ",")
+
 		// Read the CSV file
 		file, err := os.Open("data.csv")
 		if err != nil {
@@ -39,9 +49,6 @@ func main() {
 			http.Error(w, "Error reading CSV file", http.StatusInternalServerError)
 			return
 		}
-
-		// Specify the categories to filter (adjust as needed)
-		targetCategories := []string{"אוכל", "ביגוד"}
 
 		// Filter records based on the target categories
 		filteredRecords := make([][]string, 0)
@@ -115,7 +122,8 @@ func main() {
             color: #333;
         }
         .card-text {
-            font-size: 1rem;
+            font-size: 1.25rem;
+            font-weight: bold;
             color: #555;
         }
     </style>
@@ -162,3 +170,5 @@ func main() {
 	// Start the web server
 	http.ListenAndServe(":8080", nil)
 }
+
+// http://localhost:8080/?categories=%D7%90%D7%95%D7%9B%D7%9C,%D7%91%D7%99%D7%92%D7%95%D7%93,%D7%91%D7%99%D7%AA:%D7%A7%D7%A0%D7%99%D7%95%D7%AA%20%D7%9C%D7%91%D7%99%D7%AA,%D7%98%D7%91%D7%A7,%D7%99%D7%A6%D7%99%D7%90%D7%95%D7%AA,%D7%A9%D7%99%D7%99%D7%9F,%D7%90%D7%99%D7%A8%D7%95%D7%A2%D7%99%D7%9D%20/%20%D7%9E%D7%AA%D7%A0%D7%95%D7%AA
