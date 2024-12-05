@@ -1,88 +1,164 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"encoding/csv"
+	"html/template"
 	"net/http"
 	"os"
-
-	"html/template"
-
-	"github.com/gocarina/gocsv"
+	"strconv"
+	"strings"
 )
 
-// Struct representing a row in the CSV
-type Record struct {
-	Category  string  `csv:"Category"`
-	Spent     float64 `csv:"Spent"`
-	Budget    float64 `csv:"Budget"`
-	Fulfilled string  `csv:"Fulfilled"`
-	Result    string  `csv:"Result"`
+// Helper functions for template
+var funcs = template.FuncMap{
+	"isNegative": func(value string) bool {
+		val, err := strconv.ParseFloat(strings.ReplaceAll(value, "₪", ""), 64)
+		return err == nil && val < 0
+	},
+	"isZeroOrPositive": func(value string) bool {
+		val, err := strconv.ParseFloat(strings.ReplaceAll(value, "₪", ""), 64)
+		return err == nil && val >= 0
+	},
 }
 
 func main() {
-	// Read the CSV file
-	file, err := os.OpenFile("data.csv", os.O_RDWR|os.O_CREATE, os.ModePerm)
-	if err != nil {
-		log.Fatalf("Error opening CSV file: %v", err)
-	}
-	defer file.Close()
-
-	var records []Record
-	if err := gocsv.UnmarshalFile(file, &records); err != nil {
-		log.Fatalf("Error parsing CSV: %v", err)
-	}
-
-	// Parse the inline HTML template
-	tmpl, err := template.New("csvTemplate").Parse(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>CSV Data</title>
-        <style>
-            .card {
-                border: 1px solid #ccc;
-                padding: 10px;
-                margin: 10px;
-                border-radius: 5px;
-                display: inline-block;
-                width: 200px;
-            }
-            .negative {
-                background-color: #f8d7da;
-            }
-            .positive {
-                background-color: #d4edda;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>CSV Data</h1>
-        <div>
-            {{range .}}
-            <div class="card {{if gt .Result 0}}positive{{else if lt .Result 0}}negative{{end}}">
-                <p>Category: {{.Category}}</p>
-                <p>Result: ₪{{.Result}}</p>
-            </div>
-            {{end}}
-        </div>
-    </body>
-    </html>
-    `)
-	if err != nil {
-		log.Fatalf("Error parsing inline template: %v", err)
-	}
-
-	// Set up the HTTP handler
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		err := tmpl.Execute(w, records)
+		// Read the CSV file
+		file, err := os.Open("data.csv")
 		if err != nil {
-			fmt.Print(err)
+			http.Error(w, "Unable to open CSV file", http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+
+		// Parse the CSV file
+		reader := csv.NewReader(file)
+		reader.Comma = ';' // Adjust the delimiter if needed
+		records, err := reader.ReadAll()
+		if err != nil {
+			http.Error(w, "Error reading CSV file", http.StatusInternalServerError)
+			return
+		}
+
+		// Specify the categories to filter (adjust as needed)
+		targetCategories := []string{"אוכל", "ביגוד"}
+
+		// Filter records based on the target categories
+		filteredRecords := make([][]string, 0)
+		for _, record := range records[1:] { // Skip header row
+			for _, category := range targetCategories {
+				if record[0] == category { // Assuming category is in the first column
+					filteredRecords = append(filteredRecords, record)
+					break
+				}
+			}
+		}
+
+		// Parse the template
+		tmpl, err := template.New("csvTemplate").Funcs(funcs).Parse(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Filtered CSV Data</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            font-family: 'Roboto', sans-serif;
+            color: #333;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            transition: transform 0.3s, box-shadow 0.3s;
+            background-color: #ffffff;
+            text-align: center;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .card-header {
+            padding: 12px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+        .card-body {
+            padding: 20px;
+            font-size: 1rem;
+            border-radius: 0 0 12px 12px;
+        }
+        .card-body.positive {
+            background-color: #4caf50; /* Green */
+            color: white;
+        }
+        .card-body.negative {
+            background-color: #e53935; /* Red */
+            color: white;
+        }
+        .card-title {
+            font-size: 1.5rem;
+            margin: 10px 0;
+            color: #333;
+        }
+        .card-text {
+            font-size: 1rem;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {{range .}}
+            {{if isZeroOrPositive (index . 4)}}
+                <div class="card">
+                    <div class="card-header" style="background-color: #28a745;">
+                        {{index . 0}}
+                    </div>
+                    <div class="card-body positive">
+                        <p class="card-text">{{index . 4}}</p>
+                    </div>
+                </div>
+            {{else}}
+                <div class="card">
+                    <div class="card-header" style="background-color: #dc3545;">
+                        {{index . 0}}
+                    </div>
+                    <div class="card-body negative">
+                        <p class="card-text">{{index . 4}}</p>
+                    </div>
+                </div>
+            {{end}}
+        {{end}}
+    </div>
+</body>
+</html>
+        `)
+		if err != nil {
+			http.Error(w, "Error parsing template", http.StatusInternalServerError)
+			return
+		}
+
+		// Execute the template with the filtered data
+		err = tmpl.Execute(w, filteredRecords)
+		if err != nil {
 			http.Error(w, "Error executing template", http.StatusInternalServerError)
 		}
 	})
 
-	// Start the server
-	log.Println("Server starting on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Start the web server
+	http.ListenAndServe(":8080", nil)
 }
