@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,18 +26,17 @@ func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Get the categories from the query parameter "categories"
 		categoriesParam := r.URL.Query().Get("categories")
-		if categoriesParam == "" {
-			http.Error(w, "Categories parameter is missing", http.StatusBadRequest)
-			return
+		var targetCategories []string
+		if categoriesParam != "" {
+			// Split the categories by comma to create a slice
+			targetCategories = strings.Split(categoriesParam, ",")
 		}
-
-		// Split the categories by comma to create a slice
-		targetCategories := strings.Split(categoriesParam, ",")
 
 		// Read the CSV file
 		file, err := os.Open("data.csv")
 		if err != nil {
 			http.Error(w, "Unable to open CSV file", http.StatusInternalServerError)
+			log.Printf("Error opening file: %v", err)
 			return
 		}
 		defer file.Close()
@@ -47,16 +47,22 @@ func main() {
 		records, err := reader.ReadAll()
 		if err != nil {
 			http.Error(w, "Error reading CSV file", http.StatusInternalServerError)
+			log.Printf("Error reading file: %v", err)
 			return
 		}
 
-		// Filter records based on the target categories
+		// Determine whether to filter or display all records
 		filteredRecords := make([][]string, 0)
-		for _, record := range records[1:] { // Skip header row
-			for _, category := range targetCategories {
-				if record[0] == category { // Assuming category is in the first column
-					filteredRecords = append(filteredRecords, record)
-					break
+		if targetCategories == nil { // Display all records except the header
+			filteredRecords = records[1:]
+		} else {
+			// Filter records based on the target categories
+			for _, record := range records[1:] { // Skip header row
+				for _, category := range targetCategories {
+					if record[0] == category { // Assuming category is in the first column
+						filteredRecords = append(filteredRecords, record)
+						break
+					}
 				}
 			}
 		}
@@ -67,6 +73,8 @@ func main() {
 <html>
 <head>
     <title>Filtered CSV Data</title>
+    <meta http-equiv="refresh" content="5">
+    <link rel="shortcut icon" href="#">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <style>
@@ -130,26 +138,30 @@ func main() {
 </head>
 <body>
     <div class="container">
-        {{range .}}
-            {{if isZeroOrPositive (index . 4)}}
-                <div class="card">
-                    <div class="card-header" style="background-color: #28a745;">
-                        {{index . 0}}
+        {{if .}}
+            {{range .}}
+                {{if isZeroOrPositive (index . 4)}}
+                    <div class="card">
+                        <div class="card-header" style="background-color: #28a745;">
+                            {{index . 0}}
+                        </div>
+                        <div class="card-body positive">
+                            <p class="card-text">{{index . 4}}</p>
+                        </div>
                     </div>
-                    <div class="card-body positive">
-                        <p class="card-text">{{index . 4}}</p>
+                {{else}}
+                    <div class="card">
+                        <div class="card-header" style="background-color: #dc3545;">
+                            {{index . 0}}
+                        </div>
+                        <div class="card-body negative">
+                            <p class="card-text">{{index . 4}}</p>
+                        </div>
                     </div>
-                </div>
-            {{else}}
-                <div class="card">
-                    <div class="card-header" style="background-color: #dc3545;">
-                        {{index . 0}}
-                    </div>
-                    <div class="card-body negative">
-                        <p class="card-text">{{index . 4}}</p>
-                    </div>
-                </div>
+                {{end}}
             {{end}}
+        {{else}}
+            <p>No matching records found or no data available.</p>
         {{end}}
     </div>
 </body>
@@ -157,6 +169,7 @@ func main() {
         `)
 		if err != nil {
 			http.Error(w, "Error parsing template", http.StatusInternalServerError)
+			log.Printf("Error parsing template: %v", err)
 			return
 		}
 
@@ -164,11 +177,13 @@ func main() {
 		err = tmpl.Execute(w, filteredRecords)
 		if err != nil {
 			http.Error(w, "Error executing template", http.StatusInternalServerError)
+			log.Printf("Error executing template: %v", err)
 		}
 	})
 
 	// Start the web server
-	http.ListenAndServe(":8080", nil)
+	log.Println("Server started at http://localhost:8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
 }
-
-// http://localhost:8080/?categories=%D7%90%D7%95%D7%9B%D7%9C,%D7%91%D7%99%D7%92%D7%95%D7%93,%D7%91%D7%99%D7%AA:%D7%A7%D7%A0%D7%99%D7%95%D7%AA%20%D7%9C%D7%91%D7%99%D7%AA,%D7%98%D7%91%D7%A7,%D7%99%D7%A6%D7%99%D7%90%D7%95%D7%AA,%D7%A9%D7%99%D7%99%D7%9F,%D7%90%D7%99%D7%A8%D7%95%D7%A2%D7%99%D7%9D%20/%20%D7%9E%D7%AA%D7%A0%D7%95%D7%AA
